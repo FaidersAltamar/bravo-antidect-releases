@@ -69,7 +69,7 @@ jobs:
           VERSION: ${{ env.VERSION }}
         run: |
           set -euo pipefail
-          gh release create "v${VERSION}" --repo "${{ github.repository }}" --draft --title "Bravo Antidect v${VERSION}" --notes "Instaladores de Bravo Antidect." || true
+          gh api -X POST "repos/${{ github.repository }}/releases" -f tag_name="v${VERSION}" -f name="Bravo Antidect v${VERSION}" -f draft=true -f body="Instaladores de Bravo Antidect." >/dev/null || true
           cd src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis
           cp "Bravo Antidect_${VERSION}_x64-setup.exe" "Bravo_${VERSION}_x64-setup.exe"
           cp "Bravo Antidect_${VERSION}_x64-setup.exe.sig" "Bravo_${VERSION}_x64-setup.exe.sig"
@@ -156,7 +156,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          gh release create "v${VERSION}" --repo "${{ github.repository }}" --draft --title "Bravo Antidect v${VERSION}" --notes "Instaladores de Bravo Antidect." || true
+          gh api -X POST "repos/${{ github.repository }}/releases" -f tag_name="v${VERSION}" -f name="Bravo Antidect v${VERSION}" -f draft=true -f body="Instaladores de Bravo Antidect." >/dev/null || true
           BUNDLE="src-tauri/target/${TARGET}/release/bundle"
           cd "$BUNDLE/macos"
           cp "Bravo Antidect.app.tar.gz" "Bravo_${VERSION}_${ARCH}.app.tar.gz"
@@ -218,7 +218,7 @@ jobs:
           VERSION: ${{ env.VERSION }}
         run: |
           set -euo pipefail
-          gh release create "v${VERSION}" --repo "${{ github.repository }}" --draft --title "Bravo Antidect v${VERSION}" --notes "Instaladores de Bravo Antidect." || true
+          gh api -X POST "repos/${{ github.repository }}/releases" -f tag_name="v${VERSION}" -f name="Bravo Antidect v${VERSION}" -f draft=true -f body="Instaladores de Bravo Antidect." >/dev/null || true
           BUNDLE="src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage"
           cd "$BUNDLE"
           for f in *"${VERSION}"*.AppImage*; do
