@@ -52,7 +52,8 @@ jobs:
       - name: Version override
         env:
           VERSION: ${{ env.VERSION }}
-        run: node -e "require('fs').writeFileSync('release-version.json', JSON.stringify({version: process.env.VERSION}))"
+        run: |
+          node -e "require('fs').writeFileSync('release-version.json', JSON.stringify({version: process.env.VERSION}))"
 
       - name: Build + subir instalador (x64)
         uses: tauri-apps/tauri-action@v1
@@ -68,7 +69,7 @@ jobs:
           uploadUpdaterJson: false
           uploadUpdaterSignatures: true
           releaseAssetNamePattern: Bravo_[version]_[arch]-setup.[ext]
-          args: --features production --target x86_64-pc-windows-msvc
+          args: --features production --target x86_64-pc-windows-msvc --config release-version.json
 
   build-macos:
     runs-on: macos-15
@@ -127,7 +128,8 @@ jobs:
       - name: Version override
         env:
           VERSION: ${{ env.VERSION }}
-        run: node -e "require('fs').writeFileSync('release-version.json', JSON.stringify({version: process.env.VERSION}))"
+        run: |
+          node -e "require('fs').writeFileSync('release-version.json', JSON.stringify({version: process.env.VERSION}))"
 
       - name: Build + subir (${{ matrix.target }})
         uses: tauri-apps/tauri-action@v1
@@ -149,7 +151,7 @@ jobs:
           uploadUpdaterJson: false
           uploadUpdaterSignatures: true
           releaseAssetNamePattern: Bravo_[version]_[arch].[ext]
-          args: --features production --target ${{ matrix.target }}
+          args: --features production --target ${{ matrix.target }} --config release-version.json
 
   build-linux:
     runs-on: ubuntu-22.04
@@ -190,7 +192,8 @@ jobs:
       - name: Version override
         env:
           VERSION: ${{ env.VERSION }}
-        run: node -e "require('fs').writeFileSync('release-version.json', JSON.stringify({version: process.env.VERSION}))"
+        run: |
+          node -e "require('fs').writeFileSync('release-version.json', JSON.stringify({version: process.env.VERSION}))"
 
       - name: Build + subir (AppImage)
         uses: tauri-apps/tauri-action@v1
@@ -206,7 +209,7 @@ jobs:
           uploadUpdaterJson: false
           uploadUpdaterSignatures: true
           releaseAssetNamePattern: Bravo_[version]_[arch].[ext]
-          args: --features production --target x86_64-unknown-linux-gnu
+          args: --features production --target x86_64-unknown-linux-gnu --config release-version.json
 
   finalize:
     needs: [build-windows, build-macos, build-linux]
