@@ -55,21 +55,25 @@ jobs:
         run: |
           node -e "require('fs').writeFileSync('release-version.json', JSON.stringify({version: process.env.VERSION}))"
 
-      - name: Build + subir instalador (x64)
-        uses: tauri-apps/tauri-action@v1
+      - name: Build (directo)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ENV_NAME: production
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-        with:
-          tagName: v${{ env.VERSION }}
-          releaseName: Bravo Antidect v${{ env.VERSION }}
-          releaseDraft: true
-          uploadUpdaterJson: false
-          uploadUpdaterSignatures: true
-          releaseAssetNamePattern: Bravo_[version]_[arch]-setup.[ext]
-          args: --features production --target x86_64-pc-windows-msvc --config release-version.json
+        run: pnpm tauri build --features production --target x86_64-pc-windows-msvc --config release-version.json
+
+      - name: Subir instalador
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ env.VERSION }}
+        run: |
+          set -euo pipefail
+          gh release create "v${VERSION}" --repo "${{ github.repository }}" --draft --title "Bravo Antidect v${VERSION}" --notes "Instaladores de Bravo Antidect." || true
+          cd src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis
+          cp "Bravo Antidect_${VERSION}_x64-setup.exe" "Bravo_${VERSION}_x64-setup.exe"
+          cp "Bravo Antidect_${VERSION}_x64-setup.exe.sig" "Bravo_${VERSION}_x64-setup.exe.sig"
+          gh release upload "v${VERSION}" --repo "${{ github.repository }}" --clobber "Bravo_${VERSION}_x64-setup.exe" "Bravo_${VERSION}_x64-setup.exe.sig"
 
   build-macos:
     runs-on: macos-15
@@ -131,10 +135,8 @@ jobs:
         run: |
           node -e "require('fs').writeFileSync('release-version.json', JSON.stringify({version: process.env.VERSION}))"
 
-      - name: Build + subir (${{ matrix.target }})
-        uses: tauri-apps/tauri-action@v1
+      - name: Build (directo)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ENV_NAME: production
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
@@ -144,14 +146,25 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        with:
-          tagName: v${{ env.VERSION }}
-          releaseName: Bravo Antidect v${{ env.VERSION }}
-          releaseDraft: true
-          uploadUpdaterJson: false
-          uploadUpdaterSignatures: true
-          releaseAssetNamePattern: Bravo_[version]_[arch].[ext]
-          args: --features production --target ${{ matrix.target }} --config release-version.json
+        run: pnpm tauri build --features production --target ${{ matrix.target }} --config release-version.json
+
+      - name: Subir artefactos
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ env.VERSION }}
+          ARCH: ${{ matrix.arch }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          gh release create "v${VERSION}" --repo "${{ github.repository }}" --draft --title "Bravo Antidect v${VERSION}" --notes "Instaladores de Bravo Antidect." || true
+          BUNDLE="src-tauri/target/${TARGET}/release/bundle"
+          cd "$BUNDLE/macos"
+          cp "Bravo Antidect.app.tar.gz" "Bravo_${VERSION}_${ARCH}.app.tar.gz"
+          cp "Bravo Antidect.app.tar.gz.sig" "Bravo_${VERSION}_${ARCH}.app.tar.gz.sig"
+          cd ../dmg
+          cp "Bravo Antidect_${VERSION}_${ARCH}.dmg" "Bravo_${VERSION}_${ARCH}.dmg"
+          cd "$GITHUB_WORKSPACE/$BUNDLE/macos"
+          gh release upload "v${VERSION}" --repo "${{ github.repository }}" --clobber             "Bravo_${VERSION}_${ARCH}.app.tar.gz"             "Bravo_${VERSION}_${ARCH}.app.tar.gz.sig"             "../dmg/Bravo_${VERSION}_${ARCH}.dmg"
 
   build-linux:
     runs-on: ubuntu-22.04
@@ -181,10 +194,7 @@ jobs:
       - name: Instalar dependencias del sistema
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
-
-            libayatana-appindicator3-dev
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -195,21 +205,30 @@ jobs:
         run: |
           node -e "require('fs').writeFileSync('release-version.json', JSON.stringify({version: process.env.VERSION}))"
 
-      - name: Build + subir (AppImage)
-        uses: tauri-apps/tauri-action@v1
+      - name: Build (directo)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ENV_NAME: production
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-        with:
-          tagName: v${{ env.VERSION }}
-          releaseName: Bravo Antidect v${{ env.VERSION }}
-          releaseDraft: true
-          uploadUpdaterJson: false
-          uploadUpdaterSignatures: true
-          releaseAssetNamePattern: Bravo_[version]_[arch].[ext]
-          args: --features production --target x86_64-unknown-linux-gnu --config release-version.json
+        run: pnpm tauri build --features production --target x86_64-unknown-linux-gnu --config release-version.json
+
+      - name: Subir artefactos
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ env.VERSION }}
+        run: |
+          set -euo pipefail
+          gh release create "v${VERSION}" --repo "${{ github.repository }}" --draft --title "Bravo Antidect v${VERSION}" --notes "Instaladores de Bravo Antidect." || true
+          BUNDLE="src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage"
+          cd "$BUNDLE"
+          for f in *"${VERSION}"*.AppImage*; do
+            base=$(basename "$f")
+            case "$base" in
+              *.sig) cp "$f" "Bravo_${VERSION}_amd64.AppImage.sig" ;;
+              *) cp "$f" "Bravo_${VERSION}_amd64.AppImage" ;;
+            esac
+          done
+          gh release upload "v${VERSION}" --repo "${{ github.repository }}" --clobber "Bravo_${VERSION}_amd64.AppImage" "Bravo_${VERSION}_amd64.AppImage.sig"
 
   finalize:
     needs: [build-windows, build-macos, build-linux]
