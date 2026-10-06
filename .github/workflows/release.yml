@@ -91,7 +91,7 @@ jobs:
           cd src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis
           cp "Bravo Antidect_${VERSION}_x64-setup.exe" "Bravo_${VERSION}_x64-setup.exe"
           cp "Bravo Antidect_${VERSION}_x64-setup.exe.sig" "Bravo_${VERSION}_x64-setup.exe.sig"
-          gh release upload "${{ needs.prepare.outputs.release_id }}" --repo "${{ github.repository }}" --clobber "Bravo_${VERSION}_x64-setup.exe" "Bravo_${VERSION}_x64-setup.exe.sig"
+          gh release upload "v${{ inputs.version }}" --repo "${{ github.repository }}" --clobber "Bravo_${VERSION}_x64-setup.exe" "Bravo_${VERSION}_x64-setup.exe.sig"
 
   build-macos:
     needs: prepare
@@ -182,7 +182,7 @@ jobs:
           cd ../dmg
           cp "Bravo Antidect_${VERSION}_${ARCH}.dmg" "Bravo_${VERSION}_${ARCH}.dmg"
           cd "$GITHUB_WORKSPACE/$BUNDLE/macos"
-          gh release upload "${{ needs.prepare.outputs.release_id }}" --repo "${{ github.repository }}" --clobber             "Bravo_${VERSION}_${ARCH}.app.tar.gz"             "Bravo_${VERSION}_${ARCH}.app.tar.gz.sig"             "../dmg/Bravo_${VERSION}_${ARCH}.dmg"
+          gh release upload "v${{ inputs.version }}" --repo "${{ github.repository }}" --clobber             "Bravo_${VERSION}_${ARCH}.app.tar.gz"             "Bravo_${VERSION}_${ARCH}.app.tar.gz.sig"             "../dmg/Bravo_${VERSION}_${ARCH}.dmg"
 
   build-linux:
     needs: prepare
@@ -246,7 +246,7 @@ jobs:
               *) cp "$f" "Bravo_${VERSION}_amd64.AppImage" ;;
             esac
           done
-          gh release upload "${{ needs.prepare.outputs.release_id }}" --repo "${{ github.repository }}" --clobber "Bravo_${VERSION}_amd64.AppImage" "Bravo_${VERSION}_amd64.AppImage.sig"
+          gh release upload "v${{ inputs.version }}" --repo "${{ github.repository }}" --clobber "Bravo_${VERSION}_amd64.AppImage" "Bravo_${VERSION}_amd64.AppImage.sig"
 
   finalize:
     needs: [prepare, build-windows, build-macos, build-linux]
