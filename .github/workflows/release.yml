@@ -264,35 +264,36 @@ jobs:
           node-version: 20
 
       - name: Generar latest.json de las firmas
-        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ env.VERSION }}
+          VERSION: ${{ inputs.version }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          $releaseDir = Join-Path $env:RUNNER_TEMP "bravo-release"
-          $signatureDir = Join-Path $releaseDir "signatures"
-          $manifestDir = Join-Path $releaseDir "manifests"
-          New-Item -ItemType Directory -Path $signatureDir -Force | Out-Null
-          New-Item -ItemType Directory -Path $manifestDir -Force | Out-Null
-          $releaseMetadataPath = Join-Path $releaseDir "release.json"
-          $releaseAssetsPath = Join-Path $releaseDir "assets.json"
-          $releaseId = (gh api "repos/$env:REPOSITORY/releases" --paginate -q '.[] | select(.tag_name=="v$env:VERSION" and .draft==true) | .id' | Select-Object -First 1)
-          gh api "repos/$env:REPOSITORY/releases/$releaseId" | Out-File $releaseMetadataPath -Encoding utf8
-          gh api --paginate --slurp "repos/$env:REPOSITORY/releases/$releaseId/assets?per_page=100" | Out-File $releaseAssetsPath -Encoding utf8
-          # Descargar las firmas (los assets de drafts requieren auth)
-          $sigs = (gh api --paginate "repos/$env:REPOSITORY/releases/$releaseId/assets?per_page=100" -q '.[] | select(.name | endswith(".sig")) | .id + " " + .name')
-          foreach ($s in $sigs) {
-            $parts = $s -split " ", 2
-            gh api "repos/$env:REPOSITORY/releases/assets/$($parts[0])" -H "Accept: application/octet-stream" | Out-File (Join-Path $signatureDir $parts[1]) -Encoding ascii
-          }
-          node deploy/generate-updater-manifests.mjs $releaseMetadataPath $releaseAssetsPath $signatureDir $manifestDir $env:REPOSITORY
-          gh release upload "$releaseId" (Join-Path $manifestDir "latest.json") (Join-Path $manifestDir "latest-fixed.json") --clobber
+          set -euo pipefail
+          releaseDir="$RUNNER_TEMP/bravo-release"
+          signatureDir="$releaseDir/signatures"
+          manifestDir="$releaseDir/manifests"
+          mkdir -p "$signatureDir" "$manifestDir"
+          RELEASE_ID=$(gh api "repos/$REPOSITORY/releases" --paginate -q '.[] | select(.tag_name=="v'"$VERSION"'" and .draft==true) | .id' | head -1)
+          echo "release=$RELEASE_ID"
+          gh api "repos/$REPOSITORY/releases/$RELEASE_ID" > "$releaseDir/release.json"
+          gh api --paginate --slurp "repos/$REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" > "$releaseDir/assets.json"
+          for asset_id in $(gh api --paginate "repos/$REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" -q '.[] | select(.name | endswith(".sig")) | .id'); do
+            name=$(gh api "repos/$REPOSITORY/releases/assets/$asset_id" -q '.name')
+            gh api "repos/$REPOSITORY/releases/assets/$asset_id" -H "Accept: application/octet-stream" > "$signatureDir/$name"
+          done
+          ls -la "$signatureDir"
+          node deploy/generate-updater-manifests.mjs "$releaseDir/release.json" "$releaseDir/assets.json" "$signatureDir" "$manifestDir" "$REPOSITORY"
+          gh release upload "v$VERSION" --repo "$REPOSITORY" --clobber "$manifestDir/latest.json" || true
+          gh release upload "v$VERSION" --repo "$REPOSITORY" --clobber "$manifestDir/latest-fixed.json" || true
 
       - name: Publicar release
         if: ${{ inputs.dry_run != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases" --paginate -q '.[] | select(.tag_name=="v${{ env.VERSION }}" and .draft==true) | .id' | head -1)
-          gh api -X PATCH "repos/${{ github.repository }}/releases/$RELEASE_ID" -F draft=false -F make_latest=true
+          set -euo pipefail
+          RELEASE_ID=$(gh api "repos/$REPOSITORY/releases" --paginate -q '.[] | select(.tag_name=="v'"$VERSION"'" and .draft==true) | .id' | head -1)
+          gh api -X PATCH "repos/$REPOSITORY/releases/$RELEASE_ID" -F draft=false -F make_latest=true
