@@ -69,11 +69,14 @@ jobs:
           VERSION: ${{ env.VERSION }}
         run: |
           set -euo pipefail
-          gh api -X POST "repos/${{ github.repository }}/releases" -f tag_name="v${VERSION}" -f name="Bravo Antidect v${VERSION}" -F draft=true -f body="Instaladores de Bravo Antidect." >/dev/null || true
+          RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases" --paginate -q '.[] | select(.tag_name=="v'${VERSION}'" and .draft==true) | .id' | head -1)
+          if [ -z "$RELEASE_ID" ]; then
+            RELEASE_ID=$(gh api -X POST "repos/${{ github.repository }}/releases" -f tag_name="v${VERSION}" -f name="Bravo Antidect v${VERSION}" -F draft=true -f body="Instaladores de Bravo Antidect." -q '.id')
+          fi
           cd src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis
           cp "Bravo Antidect_${VERSION}_x64-setup.exe" "Bravo_${VERSION}_x64-setup.exe"
           cp "Bravo Antidect_${VERSION}_x64-setup.exe.sig" "Bravo_${VERSION}_x64-setup.exe.sig"
-          gh release upload "v${VERSION}" --repo "${{ github.repository }}" --clobber "Bravo_${VERSION}_x64-setup.exe" "Bravo_${VERSION}_x64-setup.exe.sig"
+          gh release upload "$RELEASE_ID" --repo "${{ github.repository }}" --clobber "Bravo_${VERSION}_x64-setup.exe" "Bravo_${VERSION}_x64-setup.exe.sig"
 
   build-macos:
     runs-on: macos-15
@@ -156,7 +159,10 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          gh api -X POST "repos/${{ github.repository }}/releases" -f tag_name="v${VERSION}" -f name="Bravo Antidect v${VERSION}" -F draft=true -f body="Instaladores de Bravo Antidect." >/dev/null || true
+          RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases" --paginate -q '.[] | select(.tag_name=="v'${VERSION}'" and .draft==true) | .id' | head -1)
+          if [ -z "$RELEASE_ID" ]; then
+            RELEASE_ID=$(gh api -X POST "repos/${{ github.repository }}/releases" -f tag_name="v${VERSION}" -f name="Bravo Antidect v${VERSION}" -F draft=true -f body="Instaladores de Bravo Antidect." -q '.id')
+          fi
           BUNDLE="src-tauri/target/${TARGET}/release/bundle"
           cd "$BUNDLE/macos"
           cp "Bravo Antidect.app.tar.gz" "Bravo_${VERSION}_${ARCH}.app.tar.gz"
@@ -164,7 +170,7 @@ jobs:
           cd ../dmg
           cp "Bravo Antidect_${VERSION}_${ARCH}.dmg" "Bravo_${VERSION}_${ARCH}.dmg"
           cd "$GITHUB_WORKSPACE/$BUNDLE/macos"
-          gh release upload "v${VERSION}" --repo "${{ github.repository }}" --clobber             "Bravo_${VERSION}_${ARCH}.app.tar.gz"             "Bravo_${VERSION}_${ARCH}.app.tar.gz.sig"             "../dmg/Bravo_${VERSION}_${ARCH}.dmg"
+          gh release upload "$RELEASE_ID" --repo "${{ github.repository }}" --clobber             "Bravo_${VERSION}_${ARCH}.app.tar.gz"             "Bravo_${VERSION}_${ARCH}.app.tar.gz.sig"             "../dmg/Bravo_${VERSION}_${ARCH}.dmg"
 
   build-linux:
     runs-on: ubuntu-22.04
@@ -218,7 +224,10 @@ jobs:
           VERSION: ${{ env.VERSION }}
         run: |
           set -euo pipefail
-          gh api -X POST "repos/${{ github.repository }}/releases" -f tag_name="v${VERSION}" -f name="Bravo Antidect v${VERSION}" -F draft=true -f body="Instaladores de Bravo Antidect." >/dev/null || true
+          RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases" --paginate -q '.[] | select(.tag_name=="v'${VERSION}'" and .draft==true) | .id' | head -1)
+          if [ -z "$RELEASE_ID" ]; then
+            RELEASE_ID=$(gh api -X POST "repos/${{ github.repository }}/releases" -f tag_name="v${VERSION}" -f name="Bravo Antidect v${VERSION}" -F draft=true -f body="Instaladores de Bravo Antidect." -q '.id')
+          fi
           BUNDLE="src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage"
           cd "$BUNDLE"
           for f in *"${VERSION}"*.AppImage*; do
@@ -228,7 +237,7 @@ jobs:
               *) cp "$f" "Bravo_${VERSION}_amd64.AppImage" ;;
             esac
           done
-          gh release upload "v${VERSION}" --repo "${{ github.repository }}" --clobber "Bravo_${VERSION}_amd64.AppImage" "Bravo_${VERSION}_amd64.AppImage.sig"
+          gh release upload "$RELEASE_ID" --repo "${{ github.repository }}" --clobber "Bravo_${VERSION}_amd64.AppImage" "Bravo_${VERSION}_amd64.AppImage.sig"
 
   finalize:
     needs: [build-windows, build-macos, build-linux]
@@ -259,14 +268,22 @@ jobs:
           New-Item -ItemType Directory -Path $manifestDir -Force | Out-Null
           $releaseMetadataPath = Join-Path $releaseDir "release.json"
           $releaseAssetsPath = Join-Path $releaseDir "assets.json"
-          gh api "repos/$env:REPOSITORY/releases/tags/v$env:VERSION" | Out-File $releaseMetadataPath -Encoding utf8
-          gh api --paginate --slurp "repos/$env:REPOSITORY/releases/tags/v$env:VERSION/assets?per_page=100" | Out-File $releaseAssetsPath -Encoding utf8
-          gh release download "v$env:VERSION" --pattern "*.sig" --dir $signatureDir --clobber
+          $releaseId = (gh api "repos/$env:REPOSITORY/releases" --paginate -q '.[] | select(.tag_name=="v$env:VERSION" and .draft==true) | .id' | Select-Object -First 1)
+          gh api "repos/$env:REPOSITORY/releases/$releaseId" | Out-File $releaseMetadataPath -Encoding utf8
+          gh api --paginate --slurp "repos/$env:REPOSITORY/releases/$releaseId/assets?per_page=100" | Out-File $releaseAssetsPath -Encoding utf8
+          # Descargar las firmas (los assets de drafts requieren auth)
+          $sigs = (gh api --paginate "repos/$env:REPOSITORY/releases/$releaseId/assets?per_page=100" -q '.[] | select(.name | endswith(".sig")) | .id + " " + .name')
+          foreach ($s in $sigs) {
+            $parts = $s -split " ", 2
+            gh api "repos/$env:REPOSITORY/releases/assets/$($parts[0])" -H "Accept: application/octet-stream" | Out-File (Join-Path $signatureDir $parts[1]) -Encoding ascii
+          }
           node deploy/generate-updater-manifests.mjs $releaseMetadataPath $releaseAssetsPath $signatureDir $manifestDir $env:REPOSITORY
-          gh release upload "v$env:VERSION" (Join-Path $manifestDir "latest.json") (Join-Path $manifestDir "latest-fixed.json") --clobber
+          gh release upload "$releaseId" (Join-Path $manifestDir "latest.json") (Join-Path $manifestDir "latest-fixed.json") --clobber
 
       - name: Publicar release
         if: ${{ inputs.dry_run != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "v${{ env.VERSION }}" --draft=false --latest
+        run: |
+          RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases" --paginate -q '.[] | select(.tag_name=="v${{ env.VERSION }}" and .draft==true) | .id' | head -1)
+          gh api -X PATCH "repos/${{ github.repository }}/releases/$RELEASE_ID" -F draft=false -F make_latest=true
