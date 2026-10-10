@@ -1,0 +1,240 @@
+name: Build installers — Bravo Antidect Browser (repo publico, no consume facturacion)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version a publicar (ej. 0.31.3)"
+        required: true
+        type: string
+      dry_run:
+        description: "Dry run (no publica la release)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_REPO: FaidersAltamar/bravo-antidect-browser
+  VERSION: ${{ inputs.version }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Crear draft del release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          ID=$(gh api "repos/${{ github.repository }}/releases" --paginate -q ".[] | select(.tag_name==\"$TAG\") | .id" | head -1)
+          if [ -z "$ID" ]; then
+            ID=$(gh api -X POST "repos/${{ github.repository }}/releases" -f tag_name="$TAG" -f name="Bravo Antidect $TAG" -F draft=true -f body="Instaladores de Bravo Antidect." -q '.id')
+          fi
+          echo "release id: $ID"
+
+  build-windows:
+    needs: prepare
+    runs-on: windows-latest
+    env:
+      TARGET: x86_64-pc-windows-msvc
+    steps:
+      - name: Checkout codigo privado
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE_REPO }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Version override
+        shell: bash
+        run: |
+          node -e "require('fs').writeFileSync('release-version.json', JSON.stringify({version: process.env.VERSION}))"
+
+      - name: Sidecars (donut-proxy + xray)
+        shell: bash
+        run: pnpm copy-proxy-binary:release
+
+      - name: Build NSIS
+        shell: bash
+        run: pnpm tauri build --target "$TARGET" --config release-version.json
+
+      - name: Subir instalador
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BUNDLE="src-tauri/target/$TARGET/release/bundle/nsis"
+          cp "$BUNDLE/Bravo Antidect_${VERSION}_x64-setup.exe" "Bravo_${VERSION}_x64-setup.exe"
+          gh release upload "v${{ inputs.version }}" --repo "${{ github.repository }}" --clobber "Bravo_${VERSION}_x64-setup.exe"
+
+  build-macos:
+    needs: prepare
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            arch: aarch64
+          - target: x86_64-apple-darwin
+            arch: x64
+    env:
+      TARGET: ${{ matrix.target }}
+    steps:
+      - name: Checkout codigo privado
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE_REPO }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Instalar certificado Apple
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/bravo-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > $RUNNER_TEMP/certificate.p12
+          security import $RUNNER_TEMP/certificate.p12 -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      - name: Version override
+        run: |
+          node -e "require('fs').writeFileSync('release-version.json', JSON.stringify({version: process.env.VERSION}))"
+
+      - name: Sidecars (donut-proxy + xray)
+        run: pnpm copy-proxy-binary:release
+
+      - name: Build DMG
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: pnpm tauri build --target "$TARGET" --config release-version.json
+
+      - name: Subir DMG
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BUNDLE="src-tauri/target/$TARGET/release/bundle/dmg"
+          cp "$BUNDLE/Bravo Antidect_${VERSION}_${{ matrix.arch }}.dmg" "Bravo_${VERSION}_${{ matrix.arch }}.dmg"
+          gh release upload "v${{ inputs.version }}" --repo "${{ github.repository }}" --clobber "Bravo_${VERSION}_${{ matrix.arch }}.dmg"
+
+  build-linux:
+    needs: prepare
+    runs-on: ubuntu-22.04
+    env:
+      TARGET: x86_64-unknown-linux-gnu
+    steps:
+      - name: Checkout codigo privado
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE_REPO }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Dependencias del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Version override
+        run: |
+          node -e "require('fs').writeFileSync('release-version.json', JSON.stringify({version: process.env.VERSION}))"
+
+      - name: Sidecars (donut-proxy + xray)
+        run: pnpm copy-proxy-binary:release
+
+      - name: Build AppImage + deb
+        run: pnpm tauri build --target "$TARGET" --config release-version.json
+
+      - name: Subir AppImage + deb
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BUNDLE="src-tauri/target/$TARGET/release/bundle"
+          cp "$BUNDLE/appimage/Bravo Antidect_${VERSION}_amd64.AppImage" "Bravo_${VERSION}_amd64.AppImage"
+          cp "$BUNDLE/deb/Bravo Antidect_${VERSION}_amd64.deb" "Bravo_${VERSION}_amd64.deb"
+          gh release upload "v${{ inputs.version }}" --repo "${{ github.repository }}" --clobber "Bravo_${VERSION}_amd64.AppImage" "Bravo_${VERSION}_amd64.deb"
+
+  finalize:
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checksums y publicar
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="v${{ inputs.version }}"
+          ASSETS="$RUNNER_TEMP/release-assets"
+          mkdir -p "$ASSETS"
+          gh release download "$TAG" --repo "${{ github.repository }}" --dir "$ASSETS"
+          cd "$ASSETS"
+          sha256sum Bravo_* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          gh release upload "$TAG" --repo "${{ github.repository }}" --clobber SHA256SUMS.txt
+          if [ "${{ inputs.dry_run }}" != "true" ]; then
+            gh release edit "$TAG" --repo "${{ github.repository }}" --draft=false --latest
+          fi
