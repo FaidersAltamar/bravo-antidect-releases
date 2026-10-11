@@ -104,8 +104,8 @@ jobs:
             arch: aarch64
           - target: x86_64-apple-darwin
             arch: x64
-    env:
-      TARGET: ${{ matrix.target }}
+    # TARGET no puede ir a job-env con matrix en el mismo nivel; se setea por step
+
     steps:
       - name: Checkout codigo privado
         uses: actions/checkout@v4
@@ -150,10 +150,13 @@ jobs:
           node -e "require('fs').writeFileSync('release-version.json', JSON.stringify({version: process.env.VERSION}))"
 
       - name: Sidecars (donut-proxy + xray)
+        env:
+          TARGET: ${{ matrix.target }}
         run: pnpm copy-proxy-binary:release
 
       - name: Build DMG
         env:
+          TARGET: ${{ matrix.target }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
@@ -163,6 +166,7 @@ jobs:
       - name: Subir DMG
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
           BUNDLE="src-tauri/target/$TARGET/release/bundle/dmg"
